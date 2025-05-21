@@ -105,13 +105,14 @@ if __name__ == "__main__":
         device=device,
         vocab_size=vocab_size,
         n_embd=512,
-        n_head=12,
-        n_layer=8,
+        n_head=16,
+        n_layer=6,
         dropout=0.2,
         ignore_index=tokenizer.special_tokens["<|padding|>"]
     )
 
-    checkpoint_path = "./output/fine_tuning/qa/base/run_2/checkpoint_50.pth"
+    #checkpoint_path = "./output/fine_tuning/qa/base/run_2/checkpoint_50.pth"
+    checkpoint_path = "./output/pre_training/base/epoch_5.pth"
     model = load_checkpoint(model, checkpoint_path=checkpoint_path)
 
     turns = [{"role": "system", "content": get_system_message()}]
