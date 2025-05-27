@@ -26,7 +26,7 @@ GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}
 GPT4_SPLIT_PATTERN = r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
 
 
-class RegexTokenizerGPU(Tokenizer):
+class FastRegexTokenizer(Tokenizer):
 
     def __init__(self, pattern=None):
         """
@@ -44,38 +44,50 @@ class RegexTokenizerGPU(Tokenizer):
         assert vocab_size >= 256
         num_merges = vocab_size - 256
 
-        # split the text up into text chunks
-        text_chunks = re.findall(self.compiled_pattern, text)
+        # 1. Divide el texto en chunks usando el regex
+        text_chunks = self.compiled_pattern.findall(text)
+        # 2. Convierte todos los chunks a bytes y los concatena en un array plano
+        ids = []
+        for chunk in text_chunks:
+            if chunk:  # evitar chunks vacíos
+                ids.extend(chunk.encode("utf-8"))  # añade los bytes del chunk
+        # Ahora ids es una lista plana de ints (0..255)
 
-        # input text preprocessing
-        ids = [list(ch.encode("utf-8")) for ch in text_chunks]
+        # 3. Inicializa merges y vocab
+        merges = {}
+        vocab = {idx: bytes([idx]) for idx in range(256)}
 
-        # iteratively merge the most common pairs to create new tokens
-        merges = {}  # (int, int) -> int
-        vocab = {idx: bytes([idx]) for idx in range(256)}  # idx -> bytes
-        for i in tqdm(range(num_merges), total=num_merges):
-            # count the number of times every consecutive pair appears
-            stats = {}
-            for chunk_ids in ids:
-                # passing in stats will update it in place, adding up counts
-                get_stats(chunk_ids, stats)
-            # find the pair with the highest count
+        for i in tqdm(range(num_merges), total=num_merges, disable=not verbose):
+            # 4. Cuenta pares consecutivos
+            stats = Counter(zip(ids, ids[1:]))
+            if not stats:
+                break
             pair = max(stats, key=stats.get)
-            # mint a new token: assign it the next available id
+
+            # 5. Crea nuevo token y haz el merge
             idx = 256 + i
-            # replace all occurrences of pair in ids with idx
-            ids = [merge(chunk_ids, pair, idx) for chunk_ids in ids]
-            # save the merge
             merges[pair] = idx
             vocab[idx] = vocab[pair[0]] + vocab[pair[1]]
-            # prints
-            if verbose:
-                print(
-                    f"merge {i+1}/{num_merges}: {pair} -> {idx} ({vocab[idx]}) had {stats[pair]} occurrences")
 
-        # save class variables
-        self.merges = merges  # used in encode()
-        self.vocab = vocab   # used in decode()
+            # 6. Reemplaza todos los pares por el nuevo token
+            new_ids = []
+            j = 0
+            while j < len(ids) - 1:
+                if (ids[j], ids[j+1]) == pair:
+                    new_ids.append(idx)
+                    j += 2
+                else:
+                    new_ids.append(ids[j])
+                    j += 1
+            if j == len(ids) - 1:
+                new_ids.append(ids[-1])
+            ids = new_ids
+
+            if verbose:
+                print(f"merge {i+1}/{num_merges}: {pair} -> {idx} ({vocab[idx]}) had {stats[pair]} occurrences")
+
+        self.merges = merges
+        self.vocab = vocab
 
     def register_special_tokens(self, special_tokens):
         # special_tokens is a dictionary of str -> int
@@ -84,19 +96,16 @@ class RegexTokenizerGPU(Tokenizer):
         self.inverse_special_tokens = {v: k for k, v in special_tokens.items()}
 
     def decode(self, ids):
-        # given ids (list of integers), return Python string
-        part_bytes = []
+        """
+        Decodifica una lista de ids a texto. Soporta tokens especiales.
+        """
+        out = []
         for idx in ids:
-            if idx in self.vocab:
-                part_bytes.append(self.vocab[idx])
-            elif idx in self.inverse_special_tokens:
-                part_bytes.append(
-                    self.inverse_special_tokens[idx].encode("utf-8"))
+            if idx in self.special_tokens_inv:
+                out.append(self.special_tokens_inv[idx])
             else:
-                raise ValueError(f"invalid token id: {idx}")
-        text_bytes = b"".join(part_bytes)
-        text = text_bytes.decode("utf-8", errors="replace")
-        return text
+                out.append(self.vocab[idx].decode("utf-8", errors="replace"))
+        return "".join(out)
 
     def _encode_chunk(self, text_bytes):
         # return the token ids
@@ -129,106 +138,107 @@ class RegexTokenizerGPU(Tokenizer):
             ids.extend(chunk_ids)
         return ids
 
-    def encode(self, text, allowed_special="none_raise"):
+    def encode(self, text, allowed_special=None):
         """
-        Unlike encode_ordinary, this function handles special tokens.
-        allowed_special: can be "all"|"none"|"none_raise" or a custom set of special tokens
-        if none_raise, then an error is raised if any special token is encountered in text
-        this is the default tiktoken behavior right now as well
-        any other behavior is either annoying, or a major footgun
+        Tokeniza el texto, respetando los tokens especiales definidos en allowed_special.
+        allowed_special: conjunto de strings (por ejemplo: {"<|endoftext|>", "<pad>"})
         """
-        # decode the user desire w.r.t. handling of special tokens
-        special = None
-        if allowed_special == "all":
-            special = self.special_tokens
-        elif allowed_special == "none":
-            special = {}
-        elif allowed_special == "none_raise":
-            special = {}
-            assert all(token not in text for token in self.special_tokens)
-        elif isinstance(allowed_special, set):
-            special = {k: v for k, v in self.special_tokens.items()
-                       if k in allowed_special}
+        if allowed_special is None:
+            allowed_special = set()
+
+        # 1. Encuentra los tokens especiales y sus posiciones
+        if allowed_special:
+            # Creamos un regex para encontrar los tokens especiales
+            special_pattern = re.compile(
+                "|".join(re.escape(s) for s in sorted(allowed_special, key=lambda x: -len(x)))
+            )
+            # Dividimos el texto en partes: normales y especiales
+            splits = []
+            last = 0
+            for match in special_pattern.finditer(text):
+                if match.start() > last:
+                    splits.append((False, text[last:match.start()]))
+                splits.append((True, match.group()))
+                last = match.end()
+            if last < len(text):
+                splits.append((False, text[last:]))
         else:
-            raise ValueError(
-                f"allowed_special={allowed_special} not understood")
-        if not special:
-            # shortcut: if no special tokens, just use the ordinary encoding
-            return self.encode_ordinary(text)
-        # otherwise, we have to be careful with potential special tokens in text
-        # we handle special tokens by splitting the text
-        # based on the occurrence of any exact match with any of the special tokens
-        # we can use re.split for this. note that surrounding the pattern with ()
-        # makes it into a capturing group, so the special tokens will be included
-        special_pattern = "(" + "|".join(re.escape(k) for k in special) + ")"
-        special_chunks = re.split(special_pattern, text)
-        # now all the special characters are separated from the rest of the text
-        # all chunks of text are encoded separately, then results are joined
+            splits = [(False, text)]
+
+        # 2. Tokeniza cada parte
         ids = []
-        for part in special_chunks:
-            if part in special:
-                # this is a special token, encode it separately as a special case
-                ids.append(special[part])
+        for is_special, fragment in splits:
+            if is_special:
+                # Añade el token especial como un solo id (puedes mapearlo a un id fijo si lo deseas)
+                # Aquí simplemente guardamos el string, pero puedes mapearlo a un id especial si lo necesitas
+                ids.append(fragment)
             else:
-                # this is an ordinary sequence, encode it normally
-                ids.extend(self.encode_ordinary(part))
+                # Tokenización normal por regex
+                text_chunks = self.compiled_pattern.findall(fragment)
+                chunk_ids = []
+                for chunk in text_chunks:
+                    if chunk:
+                        chunk_ids.extend(chunk.encode("utf-8"))
+                # Aplica los merges como en train
+                while len(chunk_ids) >= 2:
+                    candidate_pairs = [(p, self.merges[p]) for p in zip(chunk_ids, chunk_ids[1:]) if p in self.merges]
+                    if not candidate_pairs:
+                        break
+                    pair, idx = min(candidate_pairs, key=lambda x: x[1])
+                    new_chunk_ids = []
+                    j = 0
+                    while j < len(chunk_ids) - 1:
+                        if (chunk_ids[j], chunk_ids[j+1]) == pair:
+                            new_chunk_ids.append(idx)
+                            j += 2
+                        else:
+                            new_chunk_ids.append(chunk_ids[j])
+                            j += 1
+                    if j == len(chunk_ids) - 1:
+                        new_chunk_ids.append(chunk_ids[-1])
+                    chunk_ids = new_chunk_ids
+                ids.extend(chunk_ids)
         return ids
-    def train_optimized(self, text, vocab_size, verbose=False, device=None):
+    def train_optimized(self, text, vocab_size, verbose=False):
         assert vocab_size >= 256
         num_merges = vocab_size - 256
 
-        # 1. Preprocesamiento
-        text_chunks = self.compiled_pattern.findall(text)
-        ids_list = [list(chunk.encode("utf-8")) for chunk in text_chunks if chunk]
-        # Concatenamos todos los ids en un solo tensor (para vectorizar el conteo)
-        ids = [torch.tensor(chunk, dtype=torch.int32) for chunk in ids_list]
-        all_ids = torch.cat(ids)
-        if device is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-        all_ids = all_ids.to(device)
+        # 1. Convertir texto a bytes (array plano)
+        text_bytes = text.encode("utf-8")
+        ids = list(text_bytes)  # lista de enteros 0..255
 
-        # 2. Inicialización
+        # 2. Inicializar vocabulario
         merges = {}
         vocab = {idx: bytes([idx]) for idx in range(256)}
-        next_idx = 256
 
         for i in tqdm(range(num_merges), total=num_merges, disable=not verbose):
-            # 3. Conteo de pares en GPU
-            a = all_ids[:-1]
-            b = all_ids[1:]
-            pairs = torch.stack((a, b), dim=1)  # shape: [N-1, 2]
-            # Convertimos los pares a un solo valor único para contar
-            pairs_flat = pairs[:, 0] * 256 + pairs[:, 1]
-            unique, counts = torch.unique(pairs_flat, return_counts=True)
-            if len(unique) == 0:
+            # 3. Contar pares consecutivos
+            stats = Counter(zip(ids, ids[1:]))
+            if not stats:
                 break
-            # Encontrar el par más frecuente
-            max_idx = torch.argmax(counts)
-            most_common_flat = unique[max_idx].item()
-            pair = (most_common_flat // 256, most_common_flat % 256)
+            pair = max(stats, key=stats.get)
 
-            # 4. Reemplazo del par más frecuente (en CPU por simplicidad)
-            # (el reemplazo eficiente en GPU es complejo por las longitudes variables)
-            ids_cpu = all_ids.cpu().tolist()
+            # 4. Crear nuevo token y hacer merge
+            idx = 256 + i
+            merges[pair] = idx
+            vocab[idx] = vocab[pair[0]] + vocab[pair[1]]
+
+            # 5. Reemplazar todos los pares por el nuevo token (merge vectorizado)
             new_ids = []
             j = 0
-            while j < len(ids_cpu) - 1:
-                if (ids_cpu[j], ids_cpu[j+1]) == pair:
-                    new_ids.append(next_idx)
+            while j < len(ids) - 1:
+                if (ids[j], ids[j+1]) == pair:
+                    new_ids.append(idx)
                     j += 2
                 else:
-                    new_ids.append(ids_cpu[j])
+                    new_ids.append(ids[j])
                     j += 1
-            if j == len(ids_cpu) - 1:
-                new_ids.append(ids_cpu[-1])
-            all_ids = torch.tensor(new_ids, dtype=torch.int32, device=device)
+            if j == len(ids) - 1:
+                new_ids.append(ids[-1])
+            ids = new_ids
 
-            # 5. Actualización de merges y vocab
-            merges[pair] = next_idx
-            vocab[next_idx] = vocab[pair[0]] + vocab[pair[1]]
             if verbose:
-                print(f"merge {i+1}/{num_merges}: {pair} -> {next_idx} ({vocab[next_idx]}) had {counts[max_idx].item()} occurrences")
-            next_idx += 1
+                print(f"merge {i+1}/{num_merges}: {pair} -> {idx} ({vocab[idx]}) had {stats[pair]} occurrences")
 
         self.merges = merges
         self.vocab = vocab
