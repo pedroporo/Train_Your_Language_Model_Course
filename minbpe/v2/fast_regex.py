@@ -57,7 +57,7 @@ class FastRegexTokenizer(Tokenizer):
         merges = {}
         vocab = {idx: bytes([idx]) for idx in range(256)}
 
-        for i in tqdm(range(num_merges), total=num_merges, disable=not verbose):
+        for i in tqdm(range(num_merges), total=num_merges):
             # 4. Cuenta pares consecutivos
             stats = Counter(zip(ids, ids[1:]))
             if not stats:
@@ -96,16 +96,19 @@ class FastRegexTokenizer(Tokenizer):
         self.inverse_special_tokens = {v: k for k, v in special_tokens.items()}
 
     def decode(self, ids):
-        """
-        Decodifica una lista de ids a texto. Soporta tokens especiales.
-        """
-        out = []
+        # given ids (list of integers), return Python string
+        part_bytes = []
         for idx in ids:
-            if idx in self.special_tokens_inv:
-                out.append(self.special_tokens_inv[idx])
+            if idx in self.vocab:
+                part_bytes.append(self.vocab[idx])
+            elif idx in self.inverse_special_tokens:
+                part_bytes.append(
+                    self.inverse_special_tokens[idx].encode("utf-8"))
             else:
-                out.append(self.vocab[idx].decode("utf-8", errors="replace"))
-        return "".join(out)
+                raise ValueError(f"invalid token id: {idx}")
+        text_bytes = b"".join(part_bytes)
+        text = text_bytes.decode("utf-8", errors="replace")
+        return text
 
     def _encode_chunk(self, text_bytes):
         # return the token ids

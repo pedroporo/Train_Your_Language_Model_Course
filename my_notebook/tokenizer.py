@@ -16,7 +16,7 @@ sys.path.append("..")
 from minbpe.v2 import RegexTokenizer,FastRegexTokenizer
 from minbpe import RegexTokenizer as rt
 tokenizer = FastRegexTokenizer()
-tokenizer.train(text_sequence, vocab_size=106_384, verbose=True)
+tokenizer.train(text_sequence, vocab_size=506_384, verbose=False)
 vocab = tokenizer.vocab
 print(vocab)
 max_vocab_id = list(tokenizer.vocab.keys())[-1]
