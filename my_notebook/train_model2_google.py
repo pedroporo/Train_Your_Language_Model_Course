@@ -46,8 +46,8 @@ def setup_optimized_training():
     selConfig('pedro-small (124M)')
     
     # Parámetros optimizados
-    #batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico
-    batch_size = 1 # Ajuste estatico
+    batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico
+    #batch_size = 1 # Ajuste estatico
     block_size = BASE_CONFIG['context_length']
     n_embd = BASE_CONFIG['emb_dim']
     n_head = BASE_CONFIG['n_heads']
