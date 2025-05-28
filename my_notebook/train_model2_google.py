@@ -136,7 +136,7 @@ def train_optimized():
     torch.set_float32_matmul_precision('high')
     
     # Parámetros optimizados
-    #batch_size = 32  # Incremento significativo del batch size
+    batch_size = 320  # Incremento significativo del batch size
     gradient_accumulation_steps = 8  # Reducido para compensar el mayor batch size
     eval_interval = 500  # Evaluación más frecuente
     save_interval = 5000
