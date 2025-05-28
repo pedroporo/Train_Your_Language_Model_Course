@@ -43,7 +43,7 @@ def setup_optimized_training():
     torch.cuda.empty_cache()
     
     # Configuración del modelo con optimizaciones
-    selConfig('pedro-small (124M)')
+    selConfig('gpt2-medium (355M)')
     
     # Parámetros optimizados
     batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico
@@ -136,7 +136,7 @@ def train_optimized():
     torch.set_float32_matmul_precision('high')
     
     # Parámetros optimizados
-    batch_size = 3200  # Incremento significativo del batch size
+    batch_size = 32000  # Incremento significativo del batch size
     gradient_accumulation_steps = 8  # Reducido para compensar el mayor batch size
     eval_interval = 500  # Evaluación más frecuente
     save_interval = 5000
