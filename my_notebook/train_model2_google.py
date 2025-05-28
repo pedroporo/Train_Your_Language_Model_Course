@@ -136,12 +136,12 @@ def train_optimized():
     torch.set_float32_matmul_precision('high')
     
     # Parámetros optimizados
-    batch_size = 320  # Incremento significativo del batch size
+    batch_size = 3200  # Incremento significativo del batch size
     gradient_accumulation_steps = 8  # Reducido para compensar el mayor batch size
     eval_interval = 500  # Evaluación más frecuente
     save_interval = 5000
     learning_rate = 3e-4
-    num_workers = 2  # Para carga asíncrona de datos
+    num_workers = 4  # Para carga asíncrona de datos
     
     # Crear datasets optimizados
     train_dataset = GPTDataset(data, block_size, split='train')
