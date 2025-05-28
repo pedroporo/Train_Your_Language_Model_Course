@@ -13,15 +13,15 @@ from transformer import BASE_CONFIG, selConfig
 torch.manual_seed(3647)
 
 # Configuración
-data_path = "../output/encoded_data/encoded_atlaset.npy"
-tokenizer_path = "../output/tokenizer/darija_tokenizer.model"
-selConfig('pedro-medium (124M)')
+data_path = "../output/encoded_data/encoded_atlaset_p_nuevo.npy"
+tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer.model"
+selConfig('pedro-small (124M)')
 block_size = BASE_CONFIG['context_length']
 n_embd = BASE_CONFIG['emb_dim']
 n_head = BASE_CONFIG['n_heads']
 n_layer = BASE_CONFIG['n_layers']
 dropout = BASE_CONFIG['dropout']
-batch_size = 1  # Aumenta el batch_size para mayor velocidad si tu GPU lo permite
+batch_size = 2  # Aumenta el batch_size para mayor velocidad si tu GPU lo permite
 
 # Carga de datos y tokenizer
 data = np.load(data_path, mmap_mode='r')
@@ -114,14 +114,13 @@ def train():
     train_losses, val_losses = [], []
     optimizer.zero_grad(set_to_none=True)
     batches_processed = 0
-    torch.cuda.empty_cache()
     
     for epoch in range(1):  # puedes aumentar epochs si lo necesitas
         pbar = tqdm(enumerate(train_loader), total=len(train_loader), desc="Training")
         for it, (x_batch, y_batch) in pbar:
             x_batch = x_batch.to(device, non_blocking=True)
             y_batch = y_batch.to(device, non_blocking=True)
-            with torch.amp.autocast(enabled=(scaler is not None)):
+            with torch.amp.autocast(enabled=(scaler is not None),device_type=device):
                 logits, loss = model(x_batch, y_batch)
                 loss = loss / gradient_accumulation_steps
             
@@ -158,7 +157,7 @@ def train():
                     optimizer=optimizer,
                     epoch=batches_processed,
                     loss=loss.item(),
-                    file_path=f"../output/pre_training/run_11/checkpoint_{batches_processed}.pth"
+                    file_path=f"../output/pre_training/run_11/checkpointP_{batches_processed}.pth"
                 )
 
     # Último paso de optimizer si quedan gradientes pendientes

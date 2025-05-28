@@ -7,7 +7,7 @@ BASE_CONFIG = {
 
 model_configs = {
     "gpt2-small (124M)": {"emb_dim": 768, "n_layers": 12, "n_heads": 12},
-    "pedro-small (124M)": {"emb_dim": 768, "n_layers":12, "n_heads": 12},
+    "pedro-small (124M)": {"emb_dim": 768, "n_layers":8, "n_heads": 12},
     "pedro-medium (124M)": {"emb_dim": 768, "n_layers":14, "n_heads": 12},
     "gpt2-medium (355M)": {"emb_dim": 1024, "n_layers": 24, "n_heads": 16},
     "lilith-medium (355M)": {"emb_dim": 1024, "n_layers": 24, "n_heads": 16},
