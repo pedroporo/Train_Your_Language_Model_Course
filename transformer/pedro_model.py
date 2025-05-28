@@ -121,8 +121,8 @@ class Block(nn.Module):
             dropout=dropout,
         )
         self.feed_forward = FeedForward(n_embd, dropout)
-        self.layer_norm_1 = LayerNorm(n_embd)
-        self.layer_norm_2 = LayerNorm(n_embd)
+        self.layer_norm_1 = nn.LayerNorm(n_embd)
+        self.layer_norm_2 = nn.LayerNorm(n_embd)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.self_attention(self.layer_norm_1(x))
@@ -154,7 +154,7 @@ class GPTLanguageModel(nn.Module):
         self.blocks = nn.Sequential(
             *[Block(n_embd, n_head, block_size, dropout) for _ in range(n_layer)]
         )
-        self.final_layer_norm = LayerNorm(n_embd)
+        self.final_layer_norm = nn.LayerNorm(n_embd)
         self.final_linear_layer = nn.Linear(n_embd, vocab_size)
 
         self.apply(self._init_weights)
