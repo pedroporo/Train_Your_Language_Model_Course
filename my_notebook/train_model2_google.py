@@ -141,7 +141,7 @@ def train_optimized():
     eval_interval = 500  # Evaluación más frecuente
     save_interval = 5000
     learning_rate = 3e-4
-    num_workers = 4  # Para carga asíncrona de datos
+    num_workers = 2  # Para carga asíncrona de datos
     
     # Crear datasets optimizados
     train_dataset = GPTDataset(data, block_size, split='train')
