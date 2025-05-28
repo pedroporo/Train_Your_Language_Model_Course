@@ -46,8 +46,8 @@ def setup_optimized_training():
     selConfig('gpt2-medium (355M)')
     
     # Parámetros optimizados
-    batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico
-    #batch_size = 1 # Ajuste estatico
+    #batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico
+    batch_size = 32000 # Ajuste estatico
     block_size = BASE_CONFIG['context_length']
     n_embd = BASE_CONFIG['emb_dim']
     n_head = BASE_CONFIG['n_heads']
@@ -136,8 +136,8 @@ def train_optimized():
     torch.set_float32_matmul_precision('high')
     
     # Parámetros optimizados
-    batch_size = 32000  # Incremento significativo del batch size
-    gradient_accumulation_steps = 8  # Reducido para compensar el mayor batch size
+    #batch_size = 32000  # Incremento significativo del batch size
+    gradient_accumulation_steps = 80  # Reducido para compensar el mayor batch size
     eval_interval = 500  # Evaluación más frecuente
     save_interval = 5000
     learning_rate = 3e-4
