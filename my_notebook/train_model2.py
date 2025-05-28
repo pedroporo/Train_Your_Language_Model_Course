@@ -43,7 +43,7 @@ def setup_optimized_training():
     torch.cuda.empty_cache()
     
     # Configuración del modelo con optimizaciones
-    selConfig('pedro-small (124M)')
+    selConfig('pedro-medium (124M)')
     
     # Parámetros optimizados
     #batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico

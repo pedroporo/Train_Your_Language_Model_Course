@@ -9,7 +9,7 @@ import chainlit
 
 
 from minbpe import RegexTokenizer
-from transformer.pedro_model import GPTLanguageModel
+from transformer.pedro_model_layer import GPTLanguageModel
 from transformer import BASE_CONFIG, selConfig
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
