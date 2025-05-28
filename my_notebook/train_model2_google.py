@@ -137,7 +137,7 @@ def train_optimized():
     
     # Parámetros optimizados
     #batch_size = 32000  # Incremento significativo del batch size
-    gradient_accumulation_steps = 80  # Reducido para compensar el mayor batch size
+    gradient_accumulation_steps = 8  # Reducido para compensar el mayor batch size
     eval_interval = 500  # Evaluación más frecuente
     save_interval = 5000
     learning_rate = 3e-4
