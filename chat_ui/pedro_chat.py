@@ -45,7 +45,7 @@ def get_generated_message(
     while True:
         try:
             output_tokens = model.advanced_generation(
-                input_tokens=input_tokens, max_new_tokens=1, temperature=0.9, top_k=50, top_p=None
+                input_tokens=input_tokens, max_new_tokens=10, temperature=0.5, top_k=50, top_p=None
             )
             last_generated_token = output_tokens[0, -1].item()
 

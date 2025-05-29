@@ -20,7 +20,7 @@ data = np.load(data_path, mmap_mode='r')
 
 
 tokenizer = RegexTokenizer()
-tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer.model"
+tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer2.model"
 #tokenizer_path = "../output/tokenizer/pedro_tokenizer.model"
 tokenizer.load(model_file=tokenizer_path)
 

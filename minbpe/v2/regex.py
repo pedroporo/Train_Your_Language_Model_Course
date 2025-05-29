@@ -17,7 +17,7 @@ from collections import defaultdict, Counter
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 import multiprocessing as mp
-
+import os
 # the main GPT text split patterns, see
 # https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py
 GPT2_SPLIT_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -38,42 +38,111 @@ class RegexTokenizer(Tokenizer):
         self.special_tokens = {}
         self.inverse_special_tokens = {}
 
-    def train(self, text, vocab_size, verbose=False):
+    def train(self, text, vocab_size, verbose=False, num_workers=None):
+        """
+        Versión optimizada del método train que:
+        - Acepta texto directo o rutas de archivo
+        - Usa generadores para manejar archivos grandes
+        - Implementa procesamiento paralelo
+
+        Args:
+            text: Puede ser texto directo o ruta a un archivo
+            vocab_size: Tamaño del vocabulario objetivo
+            verbose: Si mostrar información de progreso
+            num_workers: Número de workers para procesamiento paralelo (None = auto)
+        """
         assert vocab_size >= 256
         num_merges = vocab_size - 256
 
-        # split the text up into text chunks
-        text_chunks = re.findall(self.compiled_pattern, text)
+        # Determinar si el input es un archivo o texto directo
+        if isinstance(text, str) and os.path.isfile(text):
+            # Si es un archivo, usamos generadores para leer por chunks
+            def text_chunk_generator():
+                with open(text, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        for chunk in re.findall(self.compiled_pattern, line):
+                            yield chunk
+            text_chunks = text_chunk_generator()
+        else:
+            # Si es texto directo, procesamos normalmente
+            text_chunks = re.findall(self.compiled_pattern, text)
 
-        # input text preprocessing
-        ids = [list(ch.encode("utf-8")) for ch in text_chunks]
+        # Convertir chunks a IDs usando generadores para mejor manejo de memoria
+        def ids_generator():
+            for chunk in text_chunks:
+                yield list(chunk.encode("utf-8"))
+        ids = list(ids_generator())  # Convertimos a lista para procesamiento paralelo
 
-        # iteratively merge the most common pairs to create new tokens
-        merges = {}  # (int, int) -> int
-        vocab = {idx: bytes([idx]) for idx in range(256)}  # idx -> bytes
-        for i in tqdm(range(num_merges), total=num_merges):
-            # count the number of times every consecutive pair appears
-            stats = {}
-            for chunk_ids in ids:
-                # passing in stats will update it in place, adding up counts
-                get_stats(chunk_ids, stats)
-            # find the pair with the highest count
+        # Inicialización de estructuras de datos
+        merges = {}
+        vocab = {idx: bytes([idx]) for idx in range(256)}
+
+        # Configurar paralelismo
+        num_workers = num_workers or mp.cpu_count()
+        chunk_size = max(1, len(ids) // (num_workers * 10))  # Tamaño dinámico de chunks
+
+        for i in tqdm(range(num_merges), total=num_merges, disable=not verbose):
+            # Conteo de pares con procesamiento paralelo
+            stats = self._parallel_count_pairs(ids, num_workers, chunk_size)
+
+            if not stats:
+                break  # No más pares para fusionar
+
+            # Encontrar el par más frecuente
             pair = max(stats, key=stats.get)
-            # mint a new token: assign it the next available id
+
+            # Crear nuevo token
             idx = 256 + i
-            # replace all occurrences of pair in ids with idx
-            ids = [merge(chunk_ids, pair, idx) for chunk_ids in ids]
-            # save the merge
+
+            # Fusión con procesamiento paralelo
+            ids = self._parallel_merge(ids, pair, idx, num_workers, chunk_size)
+
+            # Actualizar estructuras de datos
             merges[pair] = idx
             vocab[idx] = vocab[pair[0]] + vocab[pair[1]]
-            # prints
-            if verbose:
-                print(
-                    f"merge {i+1}/{num_merges}: {pair} -> {idx} ({vocab[idx]}) had {stats[pair]} occurrences")
 
-        # save class variables
-        self.merges = merges  # used in encode()
-        self.vocab = vocab   # used in decode()
+            if verbose:
+                print(f"merge {i+1}/{num_merges}: {pair} -> {idx} ({vocab[idx]}) had {stats[pair]} occurrences")
+
+        # Guardar variables de clase
+        self.merges = merges
+        self.vocab = vocab
+
+    def _parallel_count_pairs(self, ids, num_workers, chunk_size):
+        """Conteo paralelo de pares de tokens"""
+        def process_chunk(chunk):
+            chunk_stats = defaultdict(int)
+            for ids_list in chunk:
+                get_stats(ids_list, chunk_stats)
+            return chunk_stats
+        
+        # Dividir los IDs en chunks para procesamiento paralelo
+        chunks = [ids[i:i + chunk_size] for i in range(0, len(ids), chunk_size)]
+        
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            results = list(executor.map(process_chunk, chunks))
+        
+        # Combinar resultados
+        final_stats = defaultdict(int)
+        for result in results:
+            for pair, count in result.items():
+                final_stats[pair] += count
+        
+        return final_stats
+    
+    def _parallel_merge(self, ids, pair, idx, num_workers, chunk_size):
+        """Fusión paralela de pares de tokens"""
+        def process_chunk(chunk):
+            return [merge(ids_list, pair, idx) for ids_list in chunk]
+        
+        # Dividir los IDs en chunks para procesamiento paralelo
+        chunks = [ids[i:i + chunk_size] for i in range(0, len(ids), chunk_size)]
+        
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            results = list(executor.map(process_chunk, chunks))
+        
+        # Combinar resultados
+        return [item for sublist in results for item in sublist]
 
     def register_special_tokens(self, special_tokens):
         # special_tokens is a dictionary of str -> int
