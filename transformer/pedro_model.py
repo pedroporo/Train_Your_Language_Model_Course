@@ -175,7 +175,7 @@ class GPTLanguageModel(nn.Module):
 
         token_embedding = self.token_embedding_table(input_tokens)
         positional_embedding = self.position_embedding_table(
-            torch.arange(T, device=self.device)
+            torch.arange(T, device=input_tokens.device)
         )
         x = token_embedding + positional_embedding
         x = self.blocks(x)

@@ -30,4 +30,4 @@ tokenizer.special_tokens = {
     "<|end_turn|>": max_vocab_id + 7,
 }
 
-tokenizer.save(file_prefix="../output/tokenizer/pedro_nuevo_tokenizer2")
+tokenizer.save(file_prefix="../output/tokenizer/pedro_nuevo_tokenizer3")

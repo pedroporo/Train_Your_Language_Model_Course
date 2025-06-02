@@ -90,7 +90,7 @@ def get_model(
 
 
 def load_checkpoint(model: GPTLanguageModel, checkpoint_path: str) -> GPTLanguageModel:
-    checkpoint = torch.load(checkpoint_path, weights_only=True)
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
     model_state_dict = checkpoint["model_state_dict"]
     model.load_state_dict(model_state_dict)
     return model
