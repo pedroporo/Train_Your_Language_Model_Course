@@ -8,7 +8,7 @@ Unlike BasicTokenizer:
 - RegexTokenizer handles an optional regex splitting pattern.
 - RegexTokenizer handles optional special tokens.
 """
-
+import os
 import regex as re
 from tqdm import tqdm
 from .base import Tokenizer, get_stats, merge
@@ -39,6 +39,103 @@ class FastRegexTokenizer(Tokenizer):
         self.compiled_pattern = re.compile(self.pattern)
         self.special_tokens = {}
         self.inverse_special_tokens = {}
+    def _read_text_files(self, path):
+        """Read text from a file or all .txt files in a directory.
+        Attempts UTF-8 first, falls back to latin-1 if needed for Spanish characters."""
+        text = ""
+        if os.path.isfile(path):
+            # Handle single file
+            text = self._read_file_with_fallback(path)
+        elif os.path.isdir(path):
+            # Handle directory
+            for root, _, files in os.walk(path):
+                for file in files:
+                    if file.endswith('.txt'):
+                        file_path = os.path.join(root, file)
+                        text += self._read_file_with_fallback(file_path) + "\n"
+        else:
+            raise ValueError(f"Path {path} is neither a file nor a directory")
+        return text
+    def _read_file_with_fallback(self, file_path):
+        """Read a file with UTF-8, fall back to latin-1 if needed."""
+        print(f'Cargando el archivo: {file_path}')
+        try:
+            # First try UTF-8 (optimal for modern files)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                # Fall back to latin-1 (covers Spanish accents and is ASCII-compatible)
+                with open(file_path, 'r', encoding='latin-1') as f:
+                    print(f"Note: Read {file_path} as latin-1 (UTF-8 failed but accents are preserved)")
+                    return f.read()
+            except Exception as e:
+                print(f"Skipping unreadable file: {file_path} ({str(e)})")
+                return ""
+    def train_with_path(self, text_or_path, vocab_size, verbose=False):
+        """Train the tokenizer on text or from text files in a path.
+        
+        Args:
+            text_or_path: Can be either:
+                - A string containing text to train on
+                - A path to a text file
+                - A path to a directory containing text files (.txt)
+            vocab_size: Target vocabulary size
+            verbose: Whether to print progress information
+        """
+        assert vocab_size >= 256
+        num_merges = vocab_size - 256
+
+        # Check if text_or_path is a file or directory path
+        if isinstance(text_or_path, str) and (os.path.isfile(text_or_path) or os.path.isdir(text_or_path)):
+            text = self._read_text_files(text_or_path)
+        else:
+            text = text_or_path  # treat as raw text
+
+        # 1. Divide el texto en chunks usando el regex
+        text_chunks = self.compiled_pattern.findall(text)
+        # 2. Convierte todos los chunks a bytes y los concatena en un array plano
+        ids = []
+        for chunk in text_chunks:
+            if chunk:  # evitar chunks vacíos
+                ids.extend(chunk.encode("utf-8"))  # añade los bytes del chunk
+        # Ahora ids es una lista plana de ints (0..255)
+
+        # 3. Inicializa merges y vocab
+        merges = {}
+        vocab = {idx: bytes([idx]) for idx in range(256)}
+
+        for i in tqdm(range(num_merges), total=num_merges):
+            # 4. Cuenta pares consecutivos
+            stats = Counter(zip(ids, ids[1:]))
+            if not stats:
+                break
+            pair = max(stats, key=stats.get)
+
+            # 5. Crea nuevo token y haz el merge
+            idx = 256 + i
+            merges[pair] = idx
+            vocab[idx] = vocab[pair[0]] + vocab[pair[1]]
+
+            # 6. Reemplaza todos los pares por el nuevo token
+            new_ids = []
+            j = 0
+            while j < len(ids) - 1:
+                if (ids[j], ids[j+1]) == pair:
+                    new_ids.append(idx)
+                    j += 2
+                else:
+                    new_ids.append(ids[j])
+                    j += 1
+            if j == len(ids) - 1:
+                new_ids.append(ids[-1])
+            ids = new_ids
+
+            if verbose:
+                print(f"merge {i+1}/{num_merges}: {pair} -> {idx} ({vocab[idx]}) had {stats[pair]} occurrences")
+
+        self.merges = merges
+        self.vocab = vocab
 
     def train(self, text, vocab_size, verbose=False):
         assert vocab_size >= 256

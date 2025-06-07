@@ -16,9 +16,10 @@ sys.path.append("..")
 from minbpe.v2 import RegexTokenizer,FastRegexTokenizer
 #from minbpe import RegexTokenizer as rt
 from modelos.tokenizers import RegexTokenizer as rtd
-tokenizer = rtd()
+from modelos.tokenizers import FastRegexTokenizer as frtd
+tokenizer = frtd()
 #tokenizer.train(text_sequence, vocab_size=36_384, verbose=True)
-tokenizer.train_with_path("../data/private/datasets/", vocab_size=106_384, verbose=False)
+tokenizer.train_with_path("../data/private/datasets/", vocab_size=106_384, verbose=True)
 vocab = tokenizer.vocab
 #print(vocab)
 max_vocab_id = list(tokenizer.vocab.keys())[-1]
