@@ -24,10 +24,10 @@ if True:
     print(f"Número de caracteres únicos: {len(chars)}")
     vocab_size = len(words)
 
-    stoi = { ch:i for i,ch in enumerate(chars) }
-    itos = { i:ch for i,ch in enumerate(chars) }
-    encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
-    decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
+    stoi = { word:i for i, word in enumerate(words) }
+    itos = { i:word for i, word in enumerate(words) }
+    encode = lambda s: [stoi[word] for word in s.split()] # encoder: take a string, output a list of integers
+    decode = lambda l: ' '.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
 
     # Train and test splits
     data = torch.tensor(encode(text), dtype=torch.long)
