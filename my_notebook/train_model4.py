@@ -1,59 +1,46 @@
 import sys
 sys.path.append('..')
-from minbpe import RegexTokenizer
+from minbpe.v2 import RegexTokenizer
 import torch
 from transformer.pedro_model import GPTLanguageModel
 from transformer import BASE_CONFIG, selConfig
 import numpy as np
-from typing import Tuple,Dict
+from typing import Tuple, Dict
 from tqdm import tqdm
 from torch.utils.data import Dataset, DataLoader
-
-
 
 torch.manual_seed(3647)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"Usando dispositivo: {device}")
 
-data_path = "../output/encoded_data/encoded_atlaset_p_nuevo.npy"
+data_path = "../output/encoded_data/encoded_atlaset_p_nuevo4.npy"
 data = np.load(data_path, mmap_mode='r')
 
-
 tokenizer = RegexTokenizer()
-tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer2.model"
-#tokenizer_path = "../output/tokenizer/pedro_tokenizer.model"
+tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer3.model"
 tokenizer.load(model_file=tokenizer_path)
-
 
 def get_vocab_size(tokenizer: RegexTokenizer) -> int:
     vocab = tokenizer.vocab
     special_tokens = tokenizer.special_tokens
-
     return len(vocab) + len(special_tokens)
-
 
 vocab_size = get_vocab_size(tokenizer)
 
-
-
-
-
 def setup_optimized_training():
-    # Configuración de memoria
     torch.cuda.empty_cache()
-    
-    # Configuración del modelo con optimizaciones
     selConfig('pedro-medium (124M)')
     
-    # Parámetros optimizados
-    #batch_size = min(32, torch.cuda.get_device_properties(0).total_memory // (1024**3))  # Ajuste dinámico
-    batch_size = 2 # Ajuste estatico
+    # Ajusta batch_size a múltiplo de 2 (número GPUs)
+    batch_size = 2  
     block_size = BASE_CONFIG['context_length']
     n_embd = BASE_CONFIG['emb_dim']
     n_head = BASE_CONFIG['n_heads']
     n_layer = BASE_CONFIG['n_layers']
     dropout = BASE_CONFIG['dropout']
-    # Crear modelo optimizado
+    
+    # Crear modelo en cuda:0 
     model = GPTLanguageModel(
         vocab_size=vocab_size,
         block_size=block_size,
@@ -61,12 +48,15 @@ def setup_optimized_training():
         n_head=n_head,
         n_layer=n_layer,
         dropout=dropout,
-        device=device
-    ).to(device)
+        device='cuda:0'
+    ).to('cuda:0')
     
-    return model, batch_size,block_size
+    # Envolver en DataParallel para multi-GPU
+    model = torch.nn.DataParallel(model, device_ids=[0,1])
+    
+    return model, batch_size, block_size
 
-model, batch_size,block_size= setup_optimized_training()
+model, batch_size, block_size = setup_optimized_training()
 
 @torch.no_grad()
 def estimate_loss_optimized(model, val_loader, max_eval_batches=100):
@@ -77,36 +67,34 @@ def estimate_loss_optimized(model, val_loader, max_eval_batches=100):
     for batch_idx, (x_batch, y_batch) in enumerate(val_loader):
         if batch_idx >= max_eval_batches:
             break
-            
-        x_batch, y_batch = x_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
         
-        with torch.amp.autocast(device_type=device):
-            _, loss = model(x_batch, y_batch)
+        x_batch, y_batch = x_batch.to('cuda', non_blocking=True), y_batch.to('cuda', non_blocking=True)
+        
+        logits, loss = model(x_batch, y_batch)
+        
+        # Asegurar que loss sea un escalar antes de usar .item()
+        loss = loss.mean()
         
         val_loss += loss.item()
         num_batches += 1
     
     return {'val': val_loss / num_batches if num_batches > 0 else float('inf')}
 
-
 def save_checkpoint(
-    model: GPTLanguageModel,
+    model,
     optimizer: torch.optim.Optimizer,
     epoch: int,
     loss: float,
-    file_path: str = "checkpoint.pth"
+    file_path: str = "../output/pre_training/run_8/checkpoint.pth"
 ) -> None:
     checkpoint = {
         'epoch': epoch,
-        'model_state_dict': model.state_dict(),
+        # Accede al modelo original dentro de DataParallel
+        'model_state_dict': model.module.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'loss': loss
     }
     torch.save(checkpoint, file_path)
-
-
-
-
 
 class GPTDataset(Dataset):
     def __init__(self, data, block_size, split='train', train_split=0.9):
@@ -132,29 +120,24 @@ class GPTDataset(Dataset):
         return x, y
 
 def train_optimized():
-    # Configuración mejorada
-    torch.set_float32_matmul_precision('high')
+    torch.set_float32_matmul_precision('high')  # Opcional
     
-    # Parámetros optimizados
-    #batch_size = 32  # Incremento significativo del batch size
-    gradient_accumulation_steps = 8  # Reducido para compensar el mayor batch size
-    eval_interval = 500  # Evaluación más frecuente
+    gradient_accumulation_steps = 8
+    eval_interval = 500
     save_interval = 5000
     learning_rate = 3e-4
-    num_workers = 4  # Para carga asíncrona de datos
+    num_workers = 4
     
-    # Crear datasets optimizados
     train_dataset = GPTDataset(data, block_size, split='train')
     val_dataset = GPTDataset(data, block_size, split='val')
     
-    # DataLoaders con optimizaciones
     train_loader = DataLoader(
         train_dataset, 
         batch_size=batch_size, 
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True,  # Acelera transferencias a GPU
-        persistent_workers=True  # Mantiene workers activos
+        pin_memory=True,
+        persistent_workers=True
     )
     
     val_loader = DataLoader(
@@ -166,86 +149,64 @@ def train_optimized():
         persistent_workers=True
     )
     
-    # Optimizador con configuración mejorada
     optimizer = torch.optim.AdamW(
         model.parameters(), 
         lr=learning_rate,
-        betas=(0.9, 0.95),  # Configuración recomendada para transformers
-        weight_decay=1e-1,
+        betas=(0.9, 0.95),
+        weight_decay=1e-2,
         eps=1e-8
     )
     
-    # Compilación del modelo para PyTorch 2.0+
-    #if hasattr(torch, 'compile'):
-    #    model_compiled = torch.compile(model, mode='max-autotune')
-    #else:
-    #    model_compiled = model
-    if torch.cuda.is_available():
-        cc = torch.cuda.get_device_capability()
-        if cc[0] < 7:
-            print(f"Aviso: tu GPU (capacidad {cc}) es demasiado antigua para torch.compile (Triton).")
-            model_compiled = model
-        else:
-            model_compiled = torch.compile(model, mode='max-autotune')
-    else:
-        model_compiled = model
-    
-    # Scheduler de learning rate
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=len(train_loader), eta_min=1e-6
     )
     
-    # Variables de tracking
     step = 0
     train_losses, val_losses = [], []
     
-    model_compiled.train()
+    model.train()
     optimizer.zero_grad(set_to_none=True)
     
-    for epoch in range(7):  # Un epoch completo
+    for epoch in range(7):  # Puedes aumentar epochs
         epoch_loss = 0
         num_batches = 0
         
         for batch_idx, (x_batch, y_batch) in enumerate(tqdm(train_loader, desc=f"Training")):
-            x_batch, y_batch = x_batch.to(device, non_blocking=True), y_batch.to(device, non_blocking=True)
+            x_batch, y_batch = x_batch.to('cuda', non_blocking=True), y_batch.to('cuda', non_blocking=True)
             
-            # Forward pass
-            with torch.amp.autocast(device_type=device):  # Mixed precision para mejor rendimiento
-                logits, loss = model_compiled(x_batch, y_batch)
-                loss = loss / gradient_accumulation_steps
+            logits, loss = model(x_batch, y_batch)
             
-            # Backward pass
+            # Aseguramos que loss sea escalar promedio
+            loss = loss.mean()
+            
+            loss = loss / gradient_accumulation_steps
+            
             loss.backward()
             epoch_loss += loss.item()
             num_batches += 1
             step += 1
             
-            # Gradient accumulation
             if (batch_idx + 1) % gradient_accumulation_steps == 0:
-                # Gradient clipping para estabilidad
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
             
-            # Evaluación periódica
             if step % eval_interval == 0:
-                losses = estimate_loss_optimized(model_compiled, val_loader)
+                losses = estimate_loss_optimized(model, val_loader)
                 avg_train_loss = epoch_loss / num_batches
                 print(f"Step {step}: train loss {avg_train_loss:.4f}, val loss {losses['val']:.4f}")
                 train_losses.append(avg_train_loss)
                 val_losses.append(losses['val'])
-                
-                model_compiled.train()
+                model.train()
             
-            # Guardado periódico
             if step % save_interval == 0:
                 save_checkpoint(
                     model=model,
                     optimizer=optimizer,
                     epoch=step,
                     loss=loss.item(),
-                    file_path=f"../output/pre_training/run_7/checkpoint_{step}.pth"
+                    file_path=f"../output/pre_training/run_8/checkpoint_{step}.pth"
                 )
     
     return train_losses, val_losses
