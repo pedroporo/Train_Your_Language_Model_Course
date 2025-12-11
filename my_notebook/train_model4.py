@@ -31,10 +31,16 @@ if True:
         itos = { i:word for i, word in enumerate(words) }
         encode = lambda s: [stoi[word] for word in s.split()] # encoder: take a string, output a list of integers
         decode = lambda l: ' '.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
-
-        # Train and test splits
-        data = torch.tensor(encode(text), dtype=torch.long)
     else:
+        vocab_size = len(chars)
+        # create a mapping from characters to integers
+        stoi = { ch:i for i,ch in enumerate(chars) }
+        itos = { i:ch for i,ch in enumerate(chars) }
+        encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
+        decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
+
+    # Train and test splits
+    data = torch.tensor(encode(text), dtype=torch.long)
 else:
     data_path = "../output/encoded_data/encoded_atlaset_p_nuevo4.npy"
     data = np.load(data_path, mmap_mode='r')
