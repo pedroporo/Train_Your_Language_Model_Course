@@ -15,6 +15,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Usando dispositivo: {device}")
 
 if True:
+    useWords=True
     with open('../output/combined_text4.txt', 'r', encoding='utf-8') as f:
         text = f.read()
     chars = sorted(list(set(text)))
@@ -22,15 +23,18 @@ if True:
     print(f"Longitud del texto: {len(text)} caracteres")
     print(f"Número de palabras: {len(words)}")
     print(f"Número de caracteres únicos: {len(chars)}")
-    vocab_size = len(words)
+    if useWords:
+        
+        vocab_size = len(words)
 
-    stoi = { word:i for i, word in enumerate(words) }
-    itos = { i:word for i, word in enumerate(words) }
-    encode = lambda s: [stoi[word] for word in s.split()] # encoder: take a string, output a list of integers
-    decode = lambda l: ' '.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
+        stoi = { word:i for i, word in enumerate(words) }
+        itos = { i:word for i, word in enumerate(words) }
+        encode = lambda s: [stoi[word] for word in s.split()] # encoder: take a string, output a list of integers
+        decode = lambda l: ' '.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
 
-    # Train and test splits
-    data = torch.tensor(encode(text), dtype=torch.long)
+        # Train and test splits
+        data = torch.tensor(encode(text), dtype=torch.long)
+    else:
 else:
     data_path = "../output/encoded_data/encoded_atlaset_p_nuevo4.npy"
     data = np.load(data_path, mmap_mode='r')
