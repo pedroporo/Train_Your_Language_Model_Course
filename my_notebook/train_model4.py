@@ -14,34 +14,19 @@ torch.manual_seed(3647)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f"Usando dispositivo: {device}")
 
-#data_path = "../output/encoded_data/encoded_atlaset_p_nuevo4.npy"
-#data = np.load(data_path, mmap_mode='r')
+data_path = "../output/encoded_data/encoded_atlaset_p_nuevo4.npy"
+data = np.load(data_path, mmap_mode='r')
 
-#tokenizer = RegexTokenizer()
-#tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer3.model"
-#tokenizer.load(model_file=tokenizer_path)
+tokenizer = RegexTokenizer()
+tokenizer_path = "../output/tokenizer/pedro_nuevo_tokenizer3.model"
+tokenizer.load(model_file=tokenizer_path)
 
 def get_vocab_size(tokenizer: RegexTokenizer) -> int:
     vocab = tokenizer.vocab
     special_tokens = tokenizer.special_tokens
     return len(vocab) + len(special_tokens)
 
-#vocab_size = get_vocab_size(tokenizer)
-
-with open('../output/combined_text4.txt', 'r', encoding='utf-8') as f:
-    text = f.read()
-
-
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
-
-stoi = { ch:i for i,ch in enumerate(chars) }
-itos = { i:ch for i,ch in enumerate(chars) }
-encode = lambda s: [stoi[c] for c in s] # encoder: take a string, output a list of integers
-decode = lambda l: ''.join([itos[i] for i in l]) # decoder: take a list of integers, output a string
-
-# Train and test splits
-data = torch.tensor(encode(text), dtype=torch.long)
+vocab_size = get_vocab_size(tokenizer)
 
 def setup_optimized_training():
     torch.cuda.empty_cache()
