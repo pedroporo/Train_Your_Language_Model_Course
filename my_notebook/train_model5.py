@@ -176,6 +176,7 @@ def train_optimized():
     eval_interval = 500
     save_interval = 5000
     learning_rate = 3e-4
+    weight_decay = 0.1
     num_workers = 4
     num_epochs=2
     
@@ -204,14 +205,15 @@ def train_optimized():
         persistent_workers=True
     )
     
-    #optimizer = torch.optim.AdamW(
-    #    model.parameters(), 
-    #    lr=learning_rate,
-    #    betas=(0.9, 0.95),
-    #    weight_decay=1e-2,
-    #    eps=1e-8
-    #)
-    optimizer=model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device_type=device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), 
+        lr=learning_rate,
+        betas=(0.9, 0.95),
+        #weight_decay=1e-2,
+        weight_decay=weight_decay,
+        eps=1e-8
+    )
+    #optimizer=model.configure_optimizers(weight_decay=0.1, learning_rate=6e-4, device_type=device)
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=len(train_loader), eta_min=1e-6
