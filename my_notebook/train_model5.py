@@ -86,7 +86,7 @@ def setup_optimized_training():
     
     # Envolver en DataParallel para multi-GPU
     model = torch.nn.DataParallel(model, device_ids=[0,1])
-    
+    model.init_weights()
     return model, batch_size, block_size
 
 model, batch_size, block_size = setup_optimized_training()
